@@ -1,3 +1,4 @@
+
 from typing import TypedDict, List
 from dotenv import load_dotenv
 from tools import search_web
@@ -15,6 +16,8 @@ class AgentState(TypedDict):
     pain_points: List[str]
     scorecard: dict
     execution_risk: dict
+    pivot_suggestion: dict
+    assumption_checklist: dict
 
 def intent_extractor(state: AgentState) -> dict:
     llm = ChatGroq(model="llama-3.1-8b-instant")
@@ -106,13 +109,15 @@ Nothing else. Just JSON.
     raw = raw.strip()
     
     execution_risk = json.loads(raw)
-    return {"execution_risk": execution_risk}
+    return {"execution_risk": execution_risk}                   
+
 def aggregator(state: AgentState) -> dict:
     idea = state["idea"]
     competitors = "\n".join(state["competitors"])
     pain_points = "\n".join(state["pain_points"])
 
     llm = ChatGroq(model="llama-3.1-8b-instant")
+
 
     prompt = f"""
 You are a cynical venture capital analyst who has seen 10,000 startup pitches fail.
@@ -151,7 +156,7 @@ willingness_to_pay_score, defensibility_score, overall_score,
 verdict, one_line_summary, top_risk
 
 Nothing else. No explanation. Just JSON.
-"""
+"""    
     response = llm.invoke(prompt)
     raw = response.content.strip()
     if raw.startswith("```"):
@@ -162,6 +167,115 @@ Nothing else. No explanation. Just JSON.
     scorecard = json.loads(raw)
     return {"scorecard": scorecard}
 
+def pivot_suggester(state: AgentState) -> dict:
+    idea = state["idea"]
+    scorecard = state["scorecard"]
+    execution_risk = state["execution_risk"]
+    
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    
+    prompt = f"""
+You are a startup mentor helping a founder who has a risky idea.
+Your job is to suggest a narrower, more viable version of their idea.
+
+Original idea: {idea}
+Target user: {state["idea_cleaned"].get("target_user", "unknown")}
+Core problem: {state["idea_cleaned"].get("core_problem", "unknown")}
+
+Risk scores (10 = very risky):
+- Competition: {scorecard.get("competition_score")}
+- Retention: {scorecard.get("retention_score")}
+- Legal: {scorecard.get("legal_score")}
+- Willingness to pay: {scorecard.get("willingness_to_pay_score")}
+- Defensibility: {scorecard.get("defensibility_score")}
+- Execution complexity: {execution_risk.get("execution_risk_score")}
+
+Top risk: {scorecard.get("top_risk")}
+Biggest execution challenge: {execution_risk.get("biggest_execution_challenge")}
+
+Suggest a pivot that:
+1. Solves the same core problem
+2. Targets a narrower audience
+3. Is simpler to build
+4. Has less competition
+5. Is easier to monetize
+
+Return only valid JSON with these exact keys:
+- pivot_idea: one sentence describing the narrower idea
+- why_better: one sentence explaining why this is less risky
+- new_target_user: who this pivot"""
+
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    
+    pivot = json.loads(raw)
+    return {"pivot_suggestion": pivot}
+
+def assumption_checklist(state: AgentState) -> dict:
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    
+    scorecard = state["scorecard"]
+    execution_risk = state["execution_risk"]
+    idea_cleaned = state["idea_cleaned"]
+    
+    prompt = f"""
+You are a startup coach helping a first-time founder validate their idea before writing any code.
+
+Idea: {state["idea"]}
+Target user: {idea_cleaned.get("target_user", "unknown")}
+Core problem: {idea_cleaned.get("core_problem", "unknown")}
+
+Risk signals found:
+- Top risk: {scorecard.get("top_risk")}
+- Retention score: {scorecard.get("retention_score")} / 10
+- Willingness to pay score: {scorecard.get("willingness_to_pay_score")} / 10
+- Competition score: {scorecard.get("competition_score")} / 10
+- Biggest execution challenge: {execution_risk.get("biggest_execution_challenge")}
+
+Your job:
+Generate exactly 4 assumption validation experiments the founder can run within 48 hours — before writing a single line of code.
+
+Each experiment must:
+1. Target one specific risky assumption
+2. Be completable in under 48 hours
+3. Have a clear pass/fail signal
+
+Return only valid JSON with this exact structure:
+{{
+  "assumptions": [
+    {{
+      "assumption": "what we are assuming is true",
+      "experiment": "exactly what to do in 48 hours",
+      "pass_signal": "what result means the assumption is valid",
+      "fail_signal": "what result means you should pivot or stop"
+    }}
+  ]
+}}
+
+Nothing else. Just JSON.
+"""
+    
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    
+    checklist = json.loads(raw)
+    return {"assumption_checklist": checklist}
+
+def should_pivot(state: AgentState) -> str:
+    overall = state["scorecard"].get("overall_score", 0)
+    if overall >= 7:
+        return "pivot"
+    return "end"
 
 def build_graph():
     graph = StateGraph(AgentState)
@@ -169,18 +283,27 @@ def build_graph():
     graph.add_node("intent_extractor", intent_extractor)
     graph.add_node("competitor_finder", competitor_finder)
     graph.add_node("pain_point_miner", pain_point_miner)
+    graph.add_node("execution_risk_agent", execution_risk_agent)
     graph.add_node("aggregator", aggregator)
-    graph.add_node("execution_risk_agent",execution_risk_agent)
+    graph.add_node("pivot_suggester", pivot_suggester)
+    graph.add_node("assumption_checklist",assumption_checklist)
 
     graph.set_entry_point("intent_extractor")
     graph.add_edge("intent_extractor", "competitor_finder")
     graph.add_edge("competitor_finder", "pain_point_miner")
     graph.add_edge("pain_point_miner", "execution_risk_agent")
-    graph.add_edge("execution_risk_agent","aggregator")
-    graph.add_edge("aggregator", END)
+    graph.add_edge("execution_risk_agent", "aggregator")
+    graph.add_conditional_edges(
+        "aggregator",
+        should_pivot,
+        {
+            "pivot": "pivot_suggester",
+            "end": "assumption_checklist"
+        }
+    )
+    graph.add_edge("pivot_suggester", "assumption_checklist")
 
     return graph.compile()
-
 
 if __name__ == "__main__":
     app = build_graph()
@@ -189,12 +312,26 @@ if __name__ == "__main__":
         "idea_cleaned": {},
         "competitors": [],
         "pain_points": [],
-        "scorecard": {}
+        "scorecard": {},
+        "execution_risk": {},
+        "pivot_suggestion":{},
+        "assumption_checklist": {}
     })
     print("\n--- SCORECARD ---")
     for key, value in result["scorecard"].items():
         print(f"{key}: {value}")
-        
+    
     print("\n--- EXECUTION RISK ---")
     for key, value in result["execution_risk"].items():
         print(f"{key}: {value}")
+        
+    print("\n---PIVOT SUGGESTION---")
+    for key,value in result["pivot_suggestion"].items():
+        print(f"{key}: {value}")
+        
+    print("\n--- ASSUMPTION CHECKLIST ---")
+    for item in result["assumption_checklist"].get("assumptions", []):
+        print(f"\nAssumption: {item['assumption']}")
+        print(f"Experiment: {item['experiment']}")
+        print(f"Pass: {item['pass_signal']}")
+        print(f"Fail: {item['fail_signal']}")
