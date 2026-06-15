@@ -16,6 +16,7 @@ class AgentState(TypedDict):
     pain_points: List[str]
     scorecard: dict
     execution_risk: dict
+    pivot_suggestion: dict
 
 def intent_extractor(state: AgentState) -> dict:
     llm = ChatGroq(model="llama-3.1-8b-instant")
@@ -165,6 +166,60 @@ Nothing else. No explanation. Just JSON.
     scorecard = json.loads(raw)
     return {"scorecard": scorecard}
 
+def pivot_suggester(state: AgentState) -> dict:
+    idea = state["idea"]
+    scorecard = state["scorecard"]
+    execution_risk = state["execution_risk"]
+    
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    
+    prompt = f"""
+You are a startup mentor helping a founder who has a risky idea.
+Your job is to suggest a narrower, more viable version of their idea.
+
+Original idea: {idea}
+Target user: {state["idea_cleaned"].get("target_user", "unknown")}
+Core problem: {state["idea_cleaned"].get("core_problem", "unknown")}
+
+Risk scores (10 = very risky):
+- Competition: {scorecard.get("competition_score")}
+- Retention: {scorecard.get("retention_score")}
+- Legal: {scorecard.get("legal_score")}
+- Willingness to pay: {scorecard.get("willingness_to_pay_score")}
+- Defensibility: {scorecard.get("defensibility_score")}
+- Execution complexity: {execution_risk.get("execution_risk_score")}
+
+Top risk: {scorecard.get("top_risk")}
+Biggest execution challenge: {execution_risk.get("biggest_execution_challenge")}
+
+Suggest a pivot that:
+1. Solves the same core problem
+2. Targets a narrower audience
+3. Is simpler to build
+4. Has less competition
+5. Is easier to monetize
+
+Return only valid JSON with these exact keys:
+- pivot_idea: one sentence describing the narrower idea
+- why_better: one sentence explaining why this is less risky
+- new_target_user: who this pivot"""
+
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    
+    pivot = json.loads(raw)
+    return {"pivot_suggestion": pivot}
+
+def should_pivot(state: AgentState) -> str:
+    overall = state["scorecard"].get("overall_score", 0)
+    if overall >= 7:
+        return "pivot"
+    return "end"
 
 def build_graph():
     graph = StateGraph(AgentState)
@@ -172,18 +227,26 @@ def build_graph():
     graph.add_node("intent_extractor", intent_extractor)
     graph.add_node("competitor_finder", competitor_finder)
     graph.add_node("pain_point_miner", pain_point_miner)
-    graph.add_node("aggregator", aggregator)
     graph.add_node("execution_risk_agent", execution_risk_agent)
-    
+    graph.add_node("aggregator", aggregator)
+    graph.add_node("pivot_suggester", pivot_suggester)
+
     graph.set_entry_point("intent_extractor")
     graph.add_edge("intent_extractor", "competitor_finder")
     graph.add_edge("competitor_finder", "pain_point_miner")
     graph.add_edge("pain_point_miner", "execution_risk_agent")
     graph.add_edge("execution_risk_agent", "aggregator")
-    graph.add_edge("aggregator", END)
+    graph.add_conditional_edges(
+        "aggregator",
+        should_pivot,
+        {
+            "pivot": "pivot_suggester",
+            "end": END
+        }
+    )
+    graph.add_edge("pivot_suggester", END)
 
     return graph.compile()
-
 
 if __name__ == "__main__":
     app = build_graph()
@@ -193,7 +256,8 @@ if __name__ == "__main__":
         "competitors": [],
         "pain_points": [],
         "scorecard": {},
-        "execution_risk": {}
+        "execution_risk": {},
+        "pivot_suggestion":{}
     })
     print("\n--- SCORECARD ---")
     for key, value in result["scorecard"].items():
@@ -201,4 +265,8 @@ if __name__ == "__main__":
     
     print("\n--- EXECUTION RISK ---")
     for key, value in result["execution_risk"].items():
+        print(f"{key}: {value}")
+        
+    print("\n---PIVOT SUGGESTION---")
+    for key,value in result["pivot_suggestion"].items():
         print(f"{key}: {value}")
