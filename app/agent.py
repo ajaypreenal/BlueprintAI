@@ -14,7 +14,7 @@ class AgentState(TypedDict):
     competitors: List[str]
     pain_points: List[str]
     scorecard: dict
-
+    execution_risk: dict
 
 def intent_extractor(state: AgentState) -> dict:
     llm = ChatGroq(model="llama-3.1-8b-instant")
@@ -63,7 +63,50 @@ def pain_point_miner(state: AgentState) -> dict:
     pain_points = results.split("\n")
     return {"pain_points": pain_points}
 
+def execution_risk_agent(state: AgentState) -> dict:
+    idea = state["idea_cleaned"].get("cleaned_idea", state["idea"])
+    target_user = state["idea_cleaned"].get("target_user", "unknown")
+    
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    
+    prompt = f"""
+You are a ruthless technical feasibility analyst.
+Evaluate whether a first-time solo founder can realistically build this idea as an MVP.
 
+Idea: {idea}
+Target User: {target_user}
+
+Score each dimension 1-10 where 10 = extremely high risk:
+
+1. technical_complexity: How hard is the tech to build?
+2. team_size_required: Can one person build this or does it need a team?
+3. time_to_mvp: How long to build a basic working version? (1=weeks, 10=years)
+4. dependency_risk: Does it need hardware, licenses, partnerships, or third party approvals?
+5. capital_required: How much money is needed before first revenue?
+
+Then provide:
+- execution_risk_score: average of all 5 scores
+- biggest_execution_challenge: one sentence on the hardest part to build
+- mvp_suggestion: what the simplest possible first version looks like
+
+Return only valid JSON with these exact keys:
+technical_complexity, team_size_required, time_to_mvp, 
+dependency_risk, capital_required, execution_risk_score,
+biggest_execution_challenge, mvp_suggestion
+
+Nothing else. Just JSON.
+"""
+    
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    
+    execution_risk = json.loads(raw)
+    return {"execution_risk": execution_risk}
 def aggregator(state: AgentState) -> dict:
     idea = state["idea"]
     competitors = "\n".join(state["competitors"])
@@ -127,11 +170,13 @@ def build_graph():
     graph.add_node("competitor_finder", competitor_finder)
     graph.add_node("pain_point_miner", pain_point_miner)
     graph.add_node("aggregator", aggregator)
+    graph.add_node("execution_risk_agent",execution_risk_agent)
 
     graph.set_entry_point("intent_extractor")
     graph.add_edge("intent_extractor", "competitor_finder")
     graph.add_edge("competitor_finder", "pain_point_miner")
-    graph.add_edge("pain_point_miner", "aggregator")
+    graph.add_edge("pain_point_miner", "execution_risk_agent")
+    graph.add_edge("execution_risk_agent","aggregator")
     graph.add_edge("aggregator", END)
 
     return graph.compile()
@@ -148,4 +193,8 @@ if __name__ == "__main__":
     })
     print("\n--- SCORECARD ---")
     for key, value in result["scorecard"].items():
+        print(f"{key}: {value}")
+        
+    print("\n--- EXECUTION RISK ---")
+    for key, value in result["execution_risk"].items():
         print(f"{key}: {value}")
