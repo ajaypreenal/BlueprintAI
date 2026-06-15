@@ -72,9 +72,14 @@ def aggregator(state: AgentState) -> dict:
     llm = ChatGroq(model="llama-3.1-8b-instant")
 
     prompt = f"""
-You are a startup analyst. Analyze this idea and return a scorecard.
+You are a cynical venture capital analyst who has seen 10,000 startup pitches fail.
+You do NOT give compliments. You identify risk.
+
+Analyze this startup idea ruthlessly across 4 dimensions:
 
 Idea: {idea}
+Target User: {state["idea_cleaned"].get("target_user", "unknown")}
+Core Problem: {state["idea_cleaned"].get("core_problem", "unknown")}
 
 Competitors found:
 {competitors}
@@ -82,15 +87,27 @@ Competitors found:
 Evidence of pain/demand:
 {pain_points}
 
-Return a scorecard with these exact keys as JSON:
-- market_score (1-10)
-- competition_score (1-10, lower = more competition)
-- pain_score (1-10)
-- overall_score (average of above)
-- verdict (one of: "Strong idea", "Worth testing", "Needs more research", "Avoid")
-- one_line_summary (one sentence)
+Score each dimension 1-10 where 10 = extremely risky/bad:
 
-Return only valid JSON, nothing else.
+1. competition_score: How saturated is this market? Are there well-funded incumbents?
+2. market_score: Is there real demand evidence or just assumptions?
+3. retention_score: Why would users come back tomorrow? Is there a habit loop?
+4. legal_score: Are there regulatory, privacy, or compliance risks?
+5. willingness_to_pay_score: Will people actually pay for this? Who pays and how much?
+6. defensibility_score: Can this be copied by a developer in a weekend?
+
+Then provide:
+- overall_score: average of all 6 scores
+- verdict: one of "Strong idea", "Worth testing", "Needs more research", "Avoid"
+- one_line_summary: one brutally honest sentence
+- top_risk: the single biggest reason this could fail
+
+Return only valid JSON with these exact keys:
+competition_score, market_score, retention_score, legal_score, 
+willingness_to_pay_score, defensibility_score, overall_score, 
+verdict, one_line_summary, top_risk
+
+Nothing else. No explanation. Just JSON.
 """
     response = llm.invoke(prompt)
     raw = response.content.strip()
