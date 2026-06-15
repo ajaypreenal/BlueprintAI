@@ -17,6 +17,7 @@ class AgentState(TypedDict):
     scorecard: dict
     execution_risk: dict
     pivot_suggestion: dict
+    assumption_checklist: dict
 
 def intent_extractor(state: AgentState) -> dict:
     llm = ChatGroq(model="llama-3.1-8b-instant")
@@ -215,6 +216,61 @@ Return only valid JSON with these exact keys:
     pivot = json.loads(raw)
     return {"pivot_suggestion": pivot}
 
+def assumption_checklist(state: AgentState) -> dict:
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    
+    scorecard = state["scorecard"]
+    execution_risk = state["execution_risk"]
+    idea_cleaned = state["idea_cleaned"]
+    
+    prompt = f"""
+You are a startup coach helping a first-time founder validate their idea before writing any code.
+
+Idea: {state["idea"]}
+Target user: {idea_cleaned.get("target_user", "unknown")}
+Core problem: {idea_cleaned.get("core_problem", "unknown")}
+
+Risk signals found:
+- Top risk: {scorecard.get("top_risk")}
+- Retention score: {scorecard.get("retention_score")} / 10
+- Willingness to pay score: {scorecard.get("willingness_to_pay_score")} / 10
+- Competition score: {scorecard.get("competition_score")} / 10
+- Biggest execution challenge: {execution_risk.get("biggest_execution_challenge")}
+
+Your job:
+Generate exactly 4 assumption validation experiments the founder can run within 48 hours — before writing a single line of code.
+
+Each experiment must:
+1. Target one specific risky assumption
+2. Be completable in under 48 hours
+3. Have a clear pass/fail signal
+
+Return only valid JSON with this exact structure:
+{{
+  "assumptions": [
+    {{
+      "assumption": "what we are assuming is true",
+      "experiment": "exactly what to do in 48 hours",
+      "pass_signal": "what result means the assumption is valid",
+      "fail_signal": "what result means you should pivot or stop"
+    }}
+  ]
+}}
+
+Nothing else. Just JSON.
+"""
+    
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    
+    checklist = json.loads(raw)
+    return {"assumption_checklist": checklist}
+
 def should_pivot(state: AgentState) -> str:
     overall = state["scorecard"].get("overall_score", 0)
     if overall >= 7:
@@ -230,6 +286,7 @@ def build_graph():
     graph.add_node("execution_risk_agent", execution_risk_agent)
     graph.add_node("aggregator", aggregator)
     graph.add_node("pivot_suggester", pivot_suggester)
+    graph.add_node("assumption_checklist",assumption_checklist)
 
     graph.set_entry_point("intent_extractor")
     graph.add_edge("intent_extractor", "competitor_finder")
@@ -241,10 +298,10 @@ def build_graph():
         should_pivot,
         {
             "pivot": "pivot_suggester",
-            "end": END
+            "end": "assumption_checklist"
         }
     )
-    graph.add_edge("pivot_suggester", END)
+    graph.add_edge("pivot_suggester", "assumption_checklist")
 
     return graph.compile()
 
@@ -257,7 +314,8 @@ if __name__ == "__main__":
         "pain_points": [],
         "scorecard": {},
         "execution_risk": {},
-        "pivot_suggestion":{}
+        "pivot_suggestion":{},
+        "assumption_checklist": {}
     })
     print("\n--- SCORECARD ---")
     for key, value in result["scorecard"].items():
@@ -270,3 +328,10 @@ if __name__ == "__main__":
     print("\n---PIVOT SUGGESTION---")
     for key,value in result["pivot_suggestion"].items():
         print(f"{key}: {value}")
+        
+    print("\n--- ASSUMPTION CHECKLIST ---")
+    for item in result["assumption_checklist"].get("assumptions", []):
+        print(f"\nAssumption: {item['assumption']}")
+        print(f"Experiment: {item['experiment']}")
+        print(f"Pass: {item['pass_signal']}")
+        print(f"Fail: {item['fail_signal']}")
