@@ -1,5 +1,5 @@
 
-from typing import TypedDict, List
+from typing import TypedDict, List,Optional
 from dotenv import load_dotenv
 from tools import search_web
 from langchain_groq import ChatGroq
@@ -18,6 +18,9 @@ class AgentState(TypedDict):
     execution_risk: dict
     pivot_suggestion: dict
     assumption_checklist: dict
+    evidence_confidence: dict
+    
+    
 
 def intent_extractor(state: AgentState) -> dict:
     llm = ChatGroq(model="llama-3.1-8b-instant")
@@ -50,13 +53,35 @@ Return only valid JSON, nothing else.
     extracted = json.loads(raw)
     return {"idea_cleaned": extracted}
 
+def compute_confidence(results: list[str]) -> str:
+    
+    """Takes a list of result strings (already split by newline).
+    Filters out empty lines, then maps count → confidence label."""
+    
+    non_empty = [r for r in results if r.strip()]
+    count = len(non_empty)
+    
+    if count>=6:
+        return "High"
+    elif count>=3:
+        return "Medium"
+    elif count>=1:
+        return "Low"
+    else:
+        return "Insufficient"
+    
+    
 
 def competitor_finder(state: AgentState) -> dict:
     idea = state["idea_cleaned"].get("cleaned_idea", state["idea"])
     query = f"existing startups or products that do: {idea}"
     results = search_web(query)
     competitors = results.split("\n")
-    return {"competitors": competitors}
+    
+    confidence = compute_confidence(competitors)
+    return {"competitors": competitors,
+            "evidence_confidence":{"competitors":confidence}
+            }
 
 
 def pain_point_miner(state: AgentState) -> dict:
@@ -64,7 +89,14 @@ def pain_point_miner(state: AgentState) -> dict:
     query = f"reddit OR forum people complaining about problems with: {idea}"
     results = search_web(query)
     pain_points = results.split("\n")
-    return {"pain_points": pain_points}
+    
+    confidence = compute_confidence(pain_points)
+    existing = state.get("evidence_confidence", {})      
+    updated_confidence = {**existing, "pain_points": confidence} 
+    return {
+        "pain_points": pain_points,
+            "evidence_confidence":updated_confidence
+        }
 
 def execution_risk_agent(state: AgentState) -> dict:
     idea = state["idea_cleaned"].get("cleaned_idea", state["idea"])
@@ -315,7 +347,8 @@ if __name__ == "__main__":
         "scorecard": {},
         "execution_risk": {},
         "pivot_suggestion":{},
-        "assumption_checklist": {}
+        "assumption_checklist": {},
+        "evidence_confidence": {    }
     })
     print("\n--- SCORECARD ---")
     for key, value in result["scorecard"].items():
