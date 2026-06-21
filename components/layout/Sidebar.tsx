@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { goToGoogleLogin } from '@/lib/auth';
@@ -71,8 +71,62 @@ const navigationItems = [
   },
 ];
 
-export function Sidebar() {
+function NavLinks({ onNavigate }: { onNavigate: () => void }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get('session_id');
+
+  return (
+    <>
+      {navigationItems.map((item) => {
+        const Icon = item.icon;
+        const isActive = pathname === item.href || pathname?.startsWith(item.href);
+        const href = sessionId ? `${item.href}?session_id=${sessionId}` : item.href;
+        return (
+          <Link key={item.href} href={href} onClick={onNavigate}>
+            <div
+              className={cn(
+                'flex items-center gap-3 px-4 py-3 rounded-lg transition-colors duration-200',
+                isActive
+                  ? 'bg-primary/10 border border-primary/30 text-primary'
+                  : 'text-muted hover:text-ink hover:bg-ink/5 border border-transparent'
+              )}
+            >
+              <Icon size={20} />
+              <div className="flex-1">
+                <p className="font-medium text-sm">{item.label}</p>
+                <p className="text-xs text-muted">{item.description}</p>
+              </div>
+            </div>
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
+function NavLinksFallback() {
+  return (
+    <>
+      {navigationItems.map((item) => {
+        const Icon = item.icon;
+        return (
+          <Link key={item.href} href={item.href}>
+            <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-transparent text-muted">
+              <Icon size={20} />
+              <div className="flex-1">
+                <p className="font-medium text-sm">{item.label}</p>
+                <p className="text-xs text-muted">{item.description}</p>
+              </div>
+            </div>
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
+export function Sidebar() {
   const router = useRouter();
   const [isOpen, setIsOpen] = React.useState(false);
   const { user, loading, logout } = useAuth();
@@ -110,28 +164,9 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="space-y-1 mb-8">
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || pathname?.startsWith(item.href);
-            return (
-              <Link key={item.href} href={item.href} onClick={() => setIsOpen(false)}>
-                <div
-                  className={cn(
-                    'flex items-center gap-3 px-4 py-3 rounded-lg transition-colors duration-200',
-                    isActive
-                      ? 'bg-primary/10 border border-primary/30 text-primary'
-                      : 'text-muted hover:text-ink hover:bg-ink/5 border border-transparent'
-                  )}
-                >
-                  <Icon size={20} />
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">{item.label}</p>
-                    <p className="text-xs text-muted">{item.description}</p>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+          <Suspense fallback={<NavLinksFallback />}>
+            <NavLinks onNavigate={() => setIsOpen(false)} />
+          </Suspense>
         </nav>
 
         {/* Footer */}

@@ -41,9 +41,9 @@ function DashboardContent() {
     const opt = {
       margin: 1,
       filename: 'blueprintai-analysis.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
+      image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { scale: 2 },
-      jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+      jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' as const },
     };
     html2pdf().from(element).set(opt).save();
   };
