@@ -26,8 +26,8 @@ export function RiskScoreCard({
     <Card className="p-6">
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className="text-sm font-medium text-slate-400 mb-1">{title}</h3>
-          {description && <p className="text-xs text-slate-500">{description}</p>}
+          <h3 className="text-sm font-medium text-muted mb-1">{title}</h3>
+          {description && <p className="text-xs text-muted">{description}</p>}
         </div>
         {trend === 'up' && <TrendingUp size={20} className="text-danger" />}
         {trend === 'down' && <TrendingDown size={20} className="text-success" />}
@@ -43,13 +43,13 @@ export function RiskScoreCard({
           <div className="relative w-20 h-20 rounded-full border-4 flex items-center justify-center"
             style={{ borderColor: color }}>
             <div className="absolute inset-0 rounded-full opacity-10" style={{ backgroundColor: color }} />
-            <span className="text-2xl font-bold text-white">{score}</span>
+            <span className="font-serif text-2xl font-semibold text-ink">{score}</span>
           </div>
         </motion.div>
 
         <div className="flex-1">
-          <p className="text-sm font-medium text-white mb-2">{level}</p>
-          <div className="w-full bg-slate-700 rounded-full h-2">
+          <p className="text-sm font-medium text-ink mb-2">{level}</p>
+          <div className="w-full bg-border-soft rounded-full h-2">
             <motion.div
               initial={{ width: 0 }}
               animate={{ width: `${score}%` }}

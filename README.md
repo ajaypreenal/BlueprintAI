@@ -1,4 +1,4 @@
-# FounderLens - AI-Powered Startup Idea Validator
+# BlueprintAI - AI-Powered Startup Idea Validator
 
 A modern, production-ready SaaS web application built with Next.js 15, TypeScript, Tailwind CSS, Shadcn UI, Framer Motion, and Recharts.
 
@@ -36,7 +36,7 @@ A modern, production-ready SaaS web application built with Next.js 15, TypeScrip
 ## Project Structure
 
 ```
-founderlens/
+blueprintai/
 ├── app/
 │   ├── layout.tsx           # Root layout
 │   ├── globals.css          # Global styles
@@ -78,7 +78,7 @@ founderlens/
 
 1. **Clone or extract the project**
    ```bash
-   cd founderlens
+   cd blueprintai
    ```
 
 2. **Install dependencies**

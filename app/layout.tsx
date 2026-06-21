@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
+import { AuthProvider } from "@/lib/AuthContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,10 +13,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const sourceSerif = Source_Serif_4({
+  variable: "--font-source-serif",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+});
+
 export const metadata: Metadata = {
-  title: "FounderLens - Validate Your Startup Idea",
-  description: "AI-powered startup idea validator and roadmap generator. Analyze risk, validate assumptions, and plan your launch in minutes.",
-  keywords: "startup, validation, AI, roadmap, user tools",
+  title: "BlueprintAI - Validate Your Idea",
+  description: "AI-powered idea validator and roadmap generator. Analyze risk, validate assumptions, and plan your next step in minutes.",
+  keywords: "startup, validation, AI, roadmap, planning, idea",
 };
 
 export default function RootLayout({
@@ -26,9 +33,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} dark h-full`}
+      className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full`}
     >
-      <body className="min-h-full flex flex-col bg-bg-dark text-white">{children}</body>
+      <body className="min-h-full flex flex-col bg-paper text-ink">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

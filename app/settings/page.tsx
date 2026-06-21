@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState({
     name: 'John User',
     email: 'john@example.com',
-    company: 'MyStartup Inc',
+    company: 'My Project',
   });
 
   const [preferences, setPreferences] = useState({
@@ -34,11 +34,11 @@ export default function SettingsPage() {
     <DashboardLayout>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2 flex items-center gap-3">
-            <Settings className="text-secondary" size={36} />
+          <h1 className="font-serif text-4xl font-semibold mb-2 flex items-center gap-3 text-ink">
+            <Settings className="text-primary" size={36} />
             Settings
           </h1>
-          <p className="text-slate-400">Manage your account and preferences</p>
+          <p className="text-muted">Manage your account and preferences</p>
         </div>
 
         <div className="max-w-2xl space-y-8">
@@ -50,14 +50,14 @@ export default function SettingsPage() {
                   <User className="text-primary" size={24} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-semibold">Profile</h2>
-                  <p className="text-sm text-slate-400">Update your personal information</p>
+                  <h2 className="text-xl font-semibold text-ink">Profile</h2>
+                  <p className="text-sm text-muted">Update your personal information</p>
                 </div>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Full Name</label>
+                  <label className="block text-sm font-semibold mb-2 text-ink">Full Name</label>
                   <Input
                     value={profile.name}
                     onChange={(e) => handleProfileUpdate('name', e.target.value)}
@@ -65,7 +65,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Email</label>
+                  <label className="block text-sm font-semibold mb-2 text-ink">Email</label>
                   <Input
                     type="email"
                     value={profile.email}
@@ -74,7 +74,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Company/Startup</label>
+                  <label className="block text-sm font-semibold mb-2 text-ink">Company/Project</label>
                   <Input
                     value={profile.company}
                     onChange={(e) => handleProfileUpdate('company', e.target.value)}
@@ -90,31 +90,31 @@ export default function SettingsPage() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <Card className="p-8">
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 rounded-lg bg-secondary/20">
-                  <Bell className="text-secondary" size={24} />
+                <div className="p-3 rounded-lg bg-primary/20">
+                  <Bell className="text-primary" size={24} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-semibold">Preferences</h2>
-                  <p className="text-sm text-slate-400">Customize your experience</p>
+                  <h2 className="text-xl font-semibold text-ink">Preferences</h2>
+                  <p className="text-sm text-muted">Customize your experience</p>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700">
+                <div className="flex items-center justify-between p-4 rounded-lg bg-paper border border-border-soft">
                   <div>
-                    <p className="font-semibold">Email Notifications</p>
-                    <p className="text-sm text-slate-400">Get updates about your analysis</p>
+                    <p className="font-semibold text-ink">Email Notifications</p>
+                    <p className="text-sm text-muted">Get updates about your analysis</p>
                   </div>
                   <button
                     onClick={() => handlePreferenceChange('emailNotifications')}
                     className={`w-12 h-6 rounded-full transition-colors ${
                       preferences.emailNotifications
                         ? 'bg-success'
-                        : 'bg-slate-700'
+                        : 'bg-border-soft'
                     }`}
                   >
                     <div
-                      className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                      className={`w-5 h-5 rounded-full bg-paper transition-transform ${
                         preferences.emailNotifications
                           ? 'translate-x-6'
                           : 'translate-x-0.5'
@@ -123,19 +123,19 @@ export default function SettingsPage() {
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700">
+                <div className="flex items-center justify-between p-4 rounded-lg bg-paper border border-border-soft">
                   <div>
-                    <p className="font-semibold">Weekly Digest</p>
-                    <p className="text-sm text-slate-400">Receive a weekly summary</p>
+                    <p className="font-semibold text-ink">Weekly Digest</p>
+                    <p className="text-sm text-muted">Receive a weekly summary</p>
                   </div>
                   <button
                     onClick={() => handlePreferenceChange('weeklyDigest')}
                     className={`w-12 h-6 rounded-full transition-colors ${
-                      preferences.weeklyDigest ? 'bg-success' : 'bg-slate-700'
+                      preferences.weeklyDigest ? 'bg-success' : 'bg-border-soft'
                     }`}
                   >
                     <div
-                      className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                      className={`w-5 h-5 rounded-full bg-paper transition-transform ${
                         preferences.weeklyDigest
                           ? 'translate-x-6'
                           : 'translate-x-0.5'
@@ -144,10 +144,10 @@ export default function SettingsPage() {
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700">
+                <div className="flex items-center justify-between p-4 rounded-lg bg-paper border border-border-soft">
                   <div>
-                    <p className="font-semibold">Dark Mode</p>
-                    <p className="text-sm text-slate-400">Always enabled</p>
+                    <p className="font-semibold text-ink">Theme</p>
+                    <p className="text-sm text-muted">Ink &amp; Paper (always enabled)</p>
                   </div>
                   <Badge variant="success">Enabled</Badge>
                 </div>
@@ -159,27 +159,27 @@ export default function SettingsPage() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
             <Card className="p-8">
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 rounded-lg bg-danger/20">
-                  <Shield className="text-danger" size={24} />
+                <div className="p-3 rounded-lg bg-primary/20">
+                  <Shield className="text-primary" size={24} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-semibold">Account</h2>
-                  <p className="text-sm text-slate-400">Manage your account security</p>
+                  <h2 className="text-xl font-semibold text-ink">Account</h2>
+                  <p className="text-sm text-muted">Manage your account security</p>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <div className="p-4 rounded-lg bg-slate-900/50 border border-slate-700">
-                  <p className="font-semibold mb-1">Password</p>
-                  <p className="text-sm text-slate-400 mb-4">Change your password</p>
+                <div className="p-4 rounded-lg bg-paper border border-border-soft">
+                  <p className="font-semibold mb-1 text-ink">Password</p>
+                  <p className="text-sm text-muted mb-4">Change your password</p>
                   <Button variant="outline" size="sm">
                     Change Password
                   </Button>
                 </div>
 
-                <div className="p-4 rounded-lg bg-slate-900/50 border border-slate-700">
-                  <p className="font-semibold mb-1">Two-Factor Authentication</p>
-                  <p className="text-sm text-slate-400 mb-4">
+                <div className="p-4 rounded-lg bg-paper border border-border-soft">
+                  <p className="font-semibold mb-1 text-ink">Two-Factor Authentication</p>
+                  <p className="text-sm text-muted mb-4">
                     Add an extra layer of security
                   </p>
                   <Button variant="outline" size="sm">
@@ -189,7 +189,7 @@ export default function SettingsPage() {
 
                 <div className="p-4 rounded-lg bg-danger/10 border border-danger/20">
                   <p className="font-semibold text-danger mb-1">Sign Out</p>
-                  <p className="text-sm text-slate-400 mb-4">
+                  <p className="text-sm text-muted mb-4">
                     Sign out from all devices
                   </p>
                   <Button variant="danger" size="sm" className="flex items-center gap-2">

@@ -229,7 +229,7 @@ export const riskBreakdownData = [
   { name: 'Competition Risk', value: 28, fill: '#EF4444' },
   { name: 'Market Demand', value: 22, fill: '#F59E0B' },
   { name: 'Execution Risk', value: 35, fill: '#06B6D4' },
-  { name: 'Financial Risk', value: 15, fill: '#22C55E' },
+  { name: 'Willingness to Pay', value: 15, fill: '#22C55E' },
 ];
 
 export const researchFindings = {

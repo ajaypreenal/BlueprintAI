@@ -1,4 +1,4 @@
-# Quick Start Guide - FounderLens
+# Quick Start Guide - BlueprintAI
 
 Get up and running in 5 minutes!
 
@@ -6,7 +6,7 @@ Get up and running in 5 minutes!
 
 ```bash
 # Navigate to project directory
-cd founderlens
+cd blueprintai
 
 # Install dependencies
 npm install

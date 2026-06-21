@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import Card from '@/components/ui/Card';
 import { Badge, ProgressBar } from '@/components/ui/Badge';
 import { mockRoadmapMilestones } from '@/lib/mockData';
 import { calculateCompletionStats } from '@/lib/utils';
+import { fetchSession } from '@/lib/fetchSession';
 import { Map, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { RoadmapMilestone } from '@/types';
 
@@ -29,23 +31,23 @@ function RoadmapCard({
       <div className="flex flex-col items-center">
         <div
           className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold flex-shrink-0 ${
-            milestone.completed ? 'bg-success/20 text-success' : 'bg-slate-700 text-slate-300'
+            milestone.completed ? 'bg-success/20 text-success' : 'bg-border-soft text-muted'
           }`}
         >
           {milestone.completed ? <CheckCircle2 size={24} /> : <span>{index + 1}</span>}
         </div>
         {index < totalCount - 1 && (
-          <div className="w-1 h-12 bg-gradient-to-b from-slate-600 to-transparent my-2" />
+          <div className="w-px h-12 bg-border-soft my-2" />
         )}
       </div>
       <Card className={`flex-1 p-4 ${milestone.completed ? 'bg-success/10 border-success/20' : ''}`}>
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            <h4 className="font-semibold flex items-center gap-2">
+            <h4 className="font-semibold flex items-center gap-2 text-ink">
               {milestone.title}
               {milestone.priority === 'high' && <Badge variant="danger">High Priority</Badge>}
             </h4>
-            <p className="text-sm text-slate-400 mt-1">{milestone.description}</p>
+            <p className="text-sm text-muted mt-1">{milestone.description}</p>
           </div>
           {milestone.completed && <CheckCircle2 className="text-success flex-shrink-0" size={24} />}
         </div>
@@ -86,11 +88,11 @@ function MilestoneGroup({
           <div className="flex items-center gap-4">
             <div className="text-3xl">{icon}</div>
             <div className="text-left">
-              <h3 className="text-xl font-semibold flex items-center gap-2">
+              <h3 className="text-xl font-semibold flex items-center gap-2 text-ink">
                 {title}
                 <Badge variant={stats.percentage === 100 ? 'success' : 'info'}>{stats.percentage}%</Badge>
               </h3>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-muted">
                 {stats.completed} of {stats.total} completed
               </p>
             </div>
@@ -98,14 +100,14 @@ function MilestoneGroup({
         </button>
 
         {expandedWeek !== week && (
-          <div className="mt-4 pt-4 border-t border-slate-700">
+          <div className="mt-4 pt-4 border-t border-border-soft">
             <ProgressBar value={stats.completed} max={stats.total} showLabel={true} />
           </div>
         )}
       </Card>
 
       {expandedWeek === week && (
-        <div className="space-y-4 ml-4 border-l-2 border-gradient-to-b from-primary to-secondary pl-4">
+        <div className="space-y-4 ml-4 border-l-2 border-primary/30 pl-4">
           {milestones.map((milestone, index) => (
             <RoadmapCard
               key={milestone.id}
@@ -120,23 +122,25 @@ function MilestoneGroup({
   );
 }
 
-import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-
 function RoadmapContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
   const [expandedWeek, setExpandedWeek] = useState<number | null>(1);
   const [milestones, setMilestones] = useState<RoadmapMilestone[]>(mockRoadmapMilestones);
   const [headline, setHeadline] = useState<string>('Your step-by-step action plan to validate and launch');
+  const [disclaimer, setDisclaimer] = useState<string>('');
+  const [topAssumptions, setTopAssumptions] = useState<any[]>([]);
+  const [basedOnPivot, setBasedOnPivot] = useState(false);
 
   useEffect(() => {
     if (sessionId) {
-      fetch(`/api/session/${sessionId}`)
-        .then(res => res.json())
+      fetchSession(sessionId)
         .then(data => {
           if (data.roadmap) {
             setHeadline(data.roadmap.headline);
+            setDisclaimer(data.roadmap.disclaimer || '');
+            setTopAssumptions(data.roadmap.top_assumptions || []);
+            setBasedOnPivot(!!data.roadmap.based_on_pivot);
             const parsed: RoadmapMilestone[] = [];
             if (data.roadmap.week_1_action) {
               parsed.push({
@@ -180,19 +184,22 @@ function RoadmapContent() {
     <DashboardLayout>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2 flex items-center gap-3">
-            <Map className="text-secondary" size={36} />
+          <h1 className="font-serif text-4xl font-semibold mb-2 flex items-center gap-3 text-ink">
+            <Map className="text-primary" size={36} />
             Personalized Roadmap
           </h1>
-          <p className="text-slate-400">{headline}</p>
+          <p className="text-muted">{headline}</p>
+          {basedOnPivot && (
+            <Badge variant="info" className="mt-2">Based on the suggested pivot, not the original idea</Badge>
+          )}
         </div>
 
         {/* Overall Progress */}
-        <Card className="p-8 mb-8 bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20">
+        <Card className="p-8 mb-8">
           <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-4">Overall Progress</h3>
+            <h3 className="text-lg font-semibold mb-4 text-ink">Overall Progress</h3>
             <ProgressBar value={allStats.completed} max={allStats.total || 1} />
-            <p className="text-sm text-slate-400 mt-3">
+            <p className="text-sm text-muted mt-3">
               {allStats.completed} of {allStats.total} tasks completed ({allStats.percentage}%)
             </p>
           </div>
@@ -242,13 +249,28 @@ function RoadmapContent() {
           />
         )}
 
+        {/* Top Assumptions to Validate */}
+        {topAssumptions.length > 0 && (
+          <Card className="p-8 mb-8">
+            <h3 className="text-lg font-semibold mb-4 text-ink">Top Assumptions to Validate First</h3>
+            <ul className="space-y-3">
+              {topAssumptions.map((a: any, i: number) => (
+                <li key={i} className="text-sm">
+                  <span className="font-medium text-ink">{a.assumption}</span>
+                  {a.experiment && <p className="text-muted mt-1">{a.experiment}</p>}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+
         {/* Tips Card */}
-        <Card className="p-8 border-secondary/20 bg-gradient-to-r from-secondary/10 to-transparent">
+        <Card className="p-8 mb-8">
           <div className="flex gap-4">
-            <AlertCircle className="text-secondary flex-shrink-0" size={24} />
+            <AlertCircle className="text-primary flex-shrink-0" size={24} />
             <div>
-              <h4 className="font-semibold mb-2">Pro Tips</h4>
-              <ul className="space-y-2 text-sm text-slate-400">
+              <h4 className="font-semibold mb-2 text-ink">Pro Tips</h4>
+              <ul className="space-y-2 text-sm text-muted">
                 <li>• Review and update this roadmap weekly with your learnings</li>
                 <li>• Share with other users and advisors for accountability</li>
                 <li>• Focus on customer interviews and validation over building</li>
@@ -257,6 +279,10 @@ function RoadmapContent() {
             </div>
           </div>
         </Card>
+
+        {disclaimer && (
+          <p className="text-center text-sm text-muted italic">{disclaimer}</p>
+        )}
       </motion.div>
     </DashboardLayout>
   );
@@ -264,7 +290,7 @@ function RoadmapContent() {
 
 export default function RoadmapPage() {
   return (
-    <Suspense fallback={<DashboardLayout><div className="p-12 text-center text-slate-400">Loading Roadmap...</div></DashboardLayout>}>
+    <Suspense fallback={<DashboardLayout><div className="p-12 text-center text-muted">Loading Roadmap...</div></DashboardLayout>}>
       <RoadmapContent />
     </Suspense>
   );

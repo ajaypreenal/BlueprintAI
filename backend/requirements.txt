@@ -1,7 +1,9 @@
 fastapi
 uvicorn
-sqlalchemy
-langgraph
-langchain-groq
-python-dotenv
 pydantic
+langchain-groq
+langgraph
+tavily-python
+python-dotenv
+authlib
+itsdangerous

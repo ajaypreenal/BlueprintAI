@@ -18,11 +18,11 @@ function AccordionItem({ title, children, defaultOpen = false }: AccordionItemPr
     <Card className="overflow-hidden">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition-colors"
+        className="w-full p-4 flex items-center justify-between hover:bg-ink/5 transition-colors"
       >
-        <h3 className="font-medium text-white text-left">{title}</h3>
+        <h3 className="font-medium text-ink text-left">{title}</h3>
         <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
-          <ChevronDown size={20} className="text-slate-400" />
+          <ChevronDown size={20} className="text-muted" />
         </motion.div>
       </button>
 
@@ -30,9 +30,9 @@ function AccordionItem({ title, children, defaultOpen = false }: AccordionItemPr
         initial={{ height: 0, opacity: 0 }}
         animate={{ height: isOpen ? 'auto' : 0, opacity: isOpen ? 1 : 0 }}
         transition={{ duration: 0.3 }}
-        className="overflow-hidden border-t border-slate-700"
+        className="overflow-hidden border-t border-border-soft"
       >
-        <div className="p-4 text-slate-300 text-sm">{children}</div>
+        <div className="p-4 text-muted text-sm">{children}</div>
       </motion.div>
     </Card>
   );

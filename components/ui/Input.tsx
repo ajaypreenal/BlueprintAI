@@ -11,7 +11,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(({ className, ...pr
   <input
     ref={ref}
     className={cn(
-      'w-full px-4 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-400',
+      'w-full px-4 py-2.5 rounded-lg bg-paper border border-border-soft text-ink placeholder-muted',
       'focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-200',
       className
     )}
@@ -25,7 +25,7 @@ const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(({ classNa
   <textarea
     ref={ref}
     className={cn(
-      'w-full px-4 py-3 rounded-lg bg-slate-900 border border-slate-700 text-white placeholder-slate-400',
+      'w-full px-4 py-3 rounded-lg bg-paper border border-border-soft text-ink placeholder-muted',
       'focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-200',
       'resize-none',
       className

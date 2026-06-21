@@ -1,152 +1,186 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+import os
+import uuid
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+from authlib.integrations.starlette_client import OAuth
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from models import Base, IdeaSession, RiskScore, Roadmap, AssumptionChecklist
+from typing import Optional
+from dotenv import load_dotenv
 from agent import build_graph
 
-# Database Setup
-SQLALCHEMY_DATABASE_URL = "sqlite:///./founderlens.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base.metadata.create_all(bind=engine)
+load_dotenv()
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+# In-memory session store for the async analyze/poll flow used by the
+# frontend. Lives only as long as this process — acceptable for a single
+# always-on backend instance (Render), but does not survive a restart or
+# scale across multiple instances.
+SESSIONS: dict[str, dict] = {}
 
 app = FastAPI()
 
+# Wildcard origins are incompatible with allow_credentials=True (cookies
+# won't be sent cross-origin), so this must be a specific origin list.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=[FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class IdeaSubmission(BaseModel):
+# Falls back to a dev-only placeholder so the server can still start without
+# SESSION_SECRET_KEY set. Set a real value in .env before deploying.
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY") or "dev-insecure-session-secret"
+
+# In production, frontend (Vercel) and backend (Render) are on different real
+# domains — the session cookie needs SameSite=None; Secure to survive that
+# cross-site hop. Locally, "localhost" with different ports is treated as
+# same-site by browsers, so Lax (and no Secure, since it's http) works fine.
+IS_PRODUCTION = BACKEND_URL.startswith("https://")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET_KEY,
+    same_site="none" if IS_PRODUCTION else "lax",
+    https_only=IS_PRODUCTION,
+)
+
+oauth = OAuth()
+oauth.register(
+    name="google",
+    # Static endpoints instead of server_metadata_url — avoids an extra
+    # live discovery fetch to accounts.google.com that was intermittently
+    # timing out from this environment. These URLs are stable for Google.
+    authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+    access_token_url="https://oauth2.googleapis.com/token",
+    userinfo_endpoint="https://openidconnect.googleapis.com/v1/userinfo",
+    jwks_uri="https://www.googleapis.com/oauth2/v3/certs",
+    client_id=os.getenv("GOOGLE_CLIENT_ID"),
+    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    client_kwargs={"scope": "openid email profile", "timeout": 15.0},
+)
+
+class IdeaRequest(BaseModel):
     idea: str
-    targetAudience: str
-    industry: str
-    geography: str
-    revenueModel: str
-    teamSize: str
-    user_type: Optional[str] = "founder"
+    user_type: str = "founder"  # founder | student | creator | career_switcher | grad
+    region: str = "global"
 
-agent_app = build_graph()
+@app.get("/")
+def root():
+    return {"message": "BlueprintAI API is running"}
 
-def process_idea_in_background(session_id: int, idea: str, user_type: str):
-    db = SessionLocal()
+@app.get("/auth/login")
+async def auth_login(request: Request):
+    redirect_uri = f"{BACKEND_URL}/auth/callback"
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request):
     try:
-        result = agent_app.invoke({
-            "idea": idea,
-            "user_type": user_type,
-            "idea_cleaned": {},
-            "competitors": [],
-            "pain_points": [],
-            "scorecard": {},
-            "execution_risk": {},
-            "pivot_suggestion": {},
-            "assumption_checklist": {},
-            "evidence_confidence": {},
-            "geographic_bias": {},
-            "score_explainability": {},
-            "roadmap": {}
-        })
-        
-        # Risk Score
-        scorecard = result.get("scorecard", {})
-        exec_risk = result.get("execution_risk", {})
-        db_risk = RiskScore(
-            session_id=session_id,
-            competition=scorecard.get("competition_score", 5),
-            market=scorecard.get("market_score", 5),
-            execution=exec_risk.get("execution_risk_score", 5),
-            assumption=scorecard.get("retention_score", 5)
-        )
-        db.add(db_risk)
-        
-        # Roadmap
-        rm_data = result.get("roadmap", {})
-        milestones = rm_data.get("milestones", {})
-        db_roadmap = Roadmap(
-            session_id=session_id,
-            headline=rm_data.get("headline", "Your personalized roadmap"),
-            week_1_action=rm_data.get("week_1", {}).get("action", ""),
-            milestones_30_day=milestones.get("30_day", []) if isinstance(milestones, dict) else [],
-            milestones_60_day=milestones.get("60_day", []) if isinstance(milestones, dict) else [],
-            milestones_90_day=milestones.get("90_day", []) if isinstance(milestones, dict) else []
-        )
-        db.add(db_roadmap)
-        
-        # Assumptions
-        for asm in rm_data.get("assumptions", []):
-            db_assumption = AssumptionChecklist(
-                session_id=session_id,
-                claim=asm.get("claim", ""),
-                validation_method=asm.get("validation_method", ""),
-                time_required=asm.get("time_required", "48 hours")
-            )
-            db.add(db_assumption)
-            
-        db.commit()
+        token = await oauth.google.authorize_access_token(request)
     except Exception as e:
-        print(f"Error processing idea: {e}")
-    finally:
-        db.close()
+        detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+        raise HTTPException(status_code=400, detail=f"OAuth callback failed: {detail}")
 
-@app.post("/api/analyze")
-async def analyze_idea(submission: IdeaSubmission, background_tasks: BackgroundTasks):
-    db = SessionLocal()
-    try:
-        db_session = IdeaSession(idea=submission.idea, user_type=submission.user_type)
-        db.add(db_session)
-        db.commit()
-        db.refresh(db_session)
-        
-        background_tasks.add_task(process_idea_in_background, db_session.id, db_session.idea, db_session.user_type)
-        
-        return {"session_id": db_session.id, "status": "processing"}
-    finally:
-        db.close()
+    user_info = token.get("userinfo") or {}
+    request.session["user"] = {
+        "email": user_info.get("email"),
+        "name": user_info.get("name"),
+        "picture": user_info.get("picture"),
+    }
+    return RedirectResponse(url=f"{FRONTEND_URL}/dashboard")
 
-@app.get("/api/session/{session_id}")
-async def get_session(session_id: int):
-    db = SessionLocal()
+@app.get("/auth/me")
+def auth_me(request: Request):
+    user = request.session.get("user")
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    return user
+
+@app.get("/auth/logout")
+def auth_logout(request: Request):
+    request.session.clear()
+    return {"message": "Logged out"}
+
+def run_validate_pipeline(idea: str, user_type: str, region: str, user_email: Optional[str]) -> dict:
+    graph = build_graph()
+    result = graph.invoke({
+        "idea": idea,
+        "user_type": user_type,
+        "region": region,
+        "idea_cleaned": {},
+        "competitors": [],
+        "pain_points": [],
+        "scorecard": {},
+        "execution_risk": {},
+        "pivot_suggestion": {},
+        "assumption_checklist": {},
+        "evidence_confidence": {},
+        "geographic_bias": {},
+        "score_explainability": {},
+        "roadmap": {}
+    })
+    return {
+        "idea": result["idea"],
+        "user_type": result["user_type"],
+        "user_email": user_email,
+        "idea_cleaned": result["idea_cleaned"],
+        "competitors": result["competitors"],
+        "pain_points": result["pain_points"],
+        "scorecard": result["scorecard"],
+        "execution_risk": result["execution_risk"],
+        "pivot_suggestion": result["pivot_suggestion"],
+        "assumption_checklist": result["assumption_checklist"],
+        "evidence_confidence": result["evidence_confidence"],
+        "geographic_bias": result["geographic_bias"],
+        "score_explainability": result["score_explainability"],
+        "roadmap": result["roadmap"]
+    }
+
+@app.post("/validate")
+def validate_idea(request: Request, body: IdeaRequest):
+    user = request.session.get("user")
+    user_email = user.get("email") if user else None
+
     try:
-        session = db.query(IdeaSession).filter(IdeaSession.id == session_id).first()
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-            
-        risk_score = db.query(RiskScore).filter(RiskScore.session_id == session_id).first()
-        roadmap = db.query(Roadmap).filter(Roadmap.session_id == session_id).first()
-        assumptions = db.query(AssumptionChecklist).filter(AssumptionChecklist.session_id == session_id).all()
-        
-        return {
-            "id": session.id,
-            "idea": session.idea,
-            "user_type": session.user_type,
-            "created_at": session.created_at,
-            "status": "completed" if risk_score else "processing",
-            "risk_score": {
-                "competition": risk_score.competition if risk_score else None,
-                "market": risk_score.market if risk_score else None,
-                "execution": risk_score.execution if risk_score else None,
-                "assumption": risk_score.assumption if risk_score else None,
-            } if risk_score else None,
-            "roadmap": {
-                "headline": roadmap.headline,
-                "week_1_action": roadmap.week_1_action,
-                "milestones_30_day": roadmap.milestones_30_day,
-                "milestones_60_day": roadmap.milestones_60_day,
-                "milestones_90_day": roadmap.milestones_90_day,
-            } if roadmap else None,
-            "assumptions": [
-                {
-                    "claim": a.claim,
-                    "validation_method": a.validation_method,
-                    "time_required": a.time_required
-                } for a in assumptions
-            ]
-        }
-    finally:
-        db.close()
+        return run_validate_pipeline(body.idea, body.user_type, body.region, user_email)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
+
+def _run_session_pipeline(session_id: str, idea: str, user_type: str, region: str, user_email: Optional[str]):
+    try:
+        data = run_validate_pipeline(idea, user_type, region, user_email)
+        SESSIONS[session_id] = {"status": "completed", "data": data}
+    except Exception as e:
+        SESSIONS[session_id] = {"status": "error", "error": str(e)}
+
+@app.post("/sessions")
+def create_session(request: Request, body: IdeaRequest, background_tasks: BackgroundTasks):
+    user = request.session.get("user")
+    user_email = user.get("email") if user else None
+
+    session_id = str(uuid.uuid4())
+    SESSIONS[session_id] = {"status": "processing"}
+    background_tasks.add_task(
+        _run_session_pipeline, session_id, body.idea, body.user_type, body.region, user_email
+    )
+    return {"session_id": session_id}
+
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str):
+    session = SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,13 +1,21 @@
-from typing import TypedDict, Optional
+from typing import TypedDict, List,Optional
+from dotenv import load_dotenv
+from tools import search_web_structured
+from geo_relevance import detect_geographic_relevance
+from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, END
-from roadmap_node import roadmap_generator
+import json
+
+load_dotenv()
+
 
 class AgentState(TypedDict):
     idea: str
-    user_type: str  # "founder", "student", "creator", "career_switcher", "grad"
+    user_type: str
+    region: str
     idea_cleaned: dict
-    competitors: list
-    pain_points: list
+    competitors: List[str]
+    pain_points: List[str]
     scorecard: dict
     execution_risk: dict
     pivot_suggestion: dict
@@ -16,63 +24,558 @@ class AgentState(TypedDict):
     geographic_bias: dict
     score_explainability: dict
     roadmap: dict
+    
+    
 
-# Stub missing nodes
 def intent_extractor(state: AgentState) -> dict:
-    return {"idea_cleaned": {"clean_idea": state.get("idea", "")}}
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    prompt = f"""
+You are an intent extraction assistant.
+The user has entered a startup idea that may contain brand names, buzzwords, or vague language.
+
+Your job:
+1. Remove any brand names or made-up product names
+2. Remove buzzwords like "AI-Driven", "Revolutionary", "Disrupting"
+3. Extract the core concept in plain, searchable language
+4. Identify the target user and core problem being solved
+
+Input: {state["idea"]}
+
+Return only a JSON object with these keys:
+- cleaned_idea: the simplified searchable concept
+- target_user: who this is for
+- core_problem: what problem it solves
+
+Return only valid JSON, nothing else.
+"""
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    extracted = json.loads(raw)
+    return {"idea_cleaned": extracted}
+
+def compute_confidence(results: list[dict]) -> str:
+
+    """Takes a list of structured result dicts.
+    Filters out entries with no title/content, then maps count → confidence label."""
+
+    non_empty = [r for r in results if r.get("title", "").strip() or r.get("content", "").strip()]
+    count = len(non_empty)
+
+    if count>=6:
+        return "High"
+    elif count>=3:
+        return "Medium"
+    elif count>=1:
+        return "Low"
+    else:
+        return "Insufficient"
 
 def competitor_finder(state: AgentState) -> dict:
-    return {"competitors": []}
+    idea = state["idea_cleaned"].get("cleaned_idea", state["idea"])
+    query = f"existing startups or products that do: {idea}"
+    results = search_web_structured(query)
+    competitors = [f"{r['title']} ({r['domain']}): {r['content'][:200]}" for r in results]
+
+    confidence = compute_confidence(results)
+    relevance = detect_geographic_relevance(results, user_region=state.get("region", "global"))
+    return {"competitors": competitors,
+            "evidence_confidence":{"competitors":confidence},
+            "geographic_bias":{"competitors":relevance["message"]}
+            }
+
 
 def pain_point_miner(state: AgentState) -> dict:
-    return {"pain_points": []}
+    idea = state["idea_cleaned"].get("cleaned_idea", state["idea"])
+    query = f"reddit OR forum people complaining about problems with: {idea}"
+    results = search_web_structured(query)
+    pain_points = [f"{r['title']} ({r['domain']}): {r['content'][:200]}" for r in results]
+
+    confidence = compute_confidence(results)
+    relevance = detect_geographic_relevance(results, user_region=state.get("region", "global"))
+    existing_confidence = state.get("evidence_confidence", {})
+    existing_bias=state.get("geographic_bias",{})
+    return {
+        "pain_points": pain_points,
+             "evidence_confidence": {**existing_confidence, "pain_points": confidence},
+        "geographic_bias": {**existing_bias, "pain_points": relevance["message"]}  # ← NEW
+    }
 
 def execution_risk_agent(state: AgentState) -> dict:
-    return {"execution_risk": {"execution_risk_score": 7}}
+    idea = state["idea_cleaned"].get("cleaned_idea", state["idea"])
+    target_user = state["idea_cleaned"].get("target_user", "unknown")
+    
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    
+    prompt = f"""
+You are a ruthless technical feasibility analyst.
+Evaluate whether a first-time solo founder can realistically build this idea as an MVP.
 
+Idea: {idea}
+Target User: {target_user}
+
+Score each dimension 1-10 where 10 = extremely high risk:
+
+1. technical_complexity: How hard is the tech to build?
+2. team_size_required: Can one person build this or does it need a team?
+3. time_to_mvp: How long to build a basic working version? (1=weeks, 10=years)
+4. dependency_risk: Does it need hardware, licenses, partnerships, or third party approvals?
+5. capital_required: How much money is needed before first revenue?
+
+Then provide:
+- execution_risk_score: average of all 5 scores
+- biggest_execution_challenge: one sentence on the hardest part to build
+- mvp_suggestion: what the simplest possible first version looks like
+
+Return only valid JSON with these exact keys:
+technical_complexity, team_size_required, time_to_mvp, 
+dependency_risk, capital_required, execution_risk_score,
+biggest_execution_challenge, mvp_suggestion
+
+Nothing else. Just JSON.
+"""
+    
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    
+    execution_risk = json.loads(raw)
+    return {"execution_risk": execution_risk}                   
+def build_explainability(state: AgentState, scorecard: dict) -> dict:
+    """
+    Maps each score back to the evidence sources that drove it.
+    Picks top 3 non-empty items from each source list.
+    """
+    competitors = [c for c in state.get("competitors", []) if c.strip()][:3]
+    pain_points = [p for p in state.get("pain_points", []) if p.strip()][:3]
+    confidence  = state.get("evidence_confidence", {})
+    bias        = state.get("geographic_bias", {})
+
+    return {
+        "competition_score": {
+            "score": scorecard.get("competition_score"),
+            "driven_by": competitors,
+            "evidence_confidence": confidence.get("competitors", "Unknown"),
+            "geographic_bias": bias.get("competitors", "Unknown")
+        },
+         "market_score": {
+            "score": scorecard.get("market_score"),
+            "driven_by": pain_points,
+            "evidence_confidence": confidence.get("pain_points", "Unknown"),
+            "geographic_bias": bias.get("pain_points", "Unknown")
+        },
+        "retention_score": {
+            "score": scorecard.get("retention_score"),
+            "driven_by": competitors + pain_points,
+            "note": "Based on combined competitor and demand signals"
+        },
+        "willingness_to_pay_score": {
+            "score": scorecard.get("willingness_to_pay_score"),
+            "driven_by": pain_points,
+            "evidence_confidence": confidence.get("pain_points", "Unknown")
+        },
+        "defensibility_score": {
+            "score": scorecard.get("defensibility_score"),
+            "driven_by": competitors,
+            "evidence_confidence": confidence.get("competitors", "Unknown")
+        },
+         "legal_score": {
+            "score": scorecard.get("legal_score"),
+            "driven_by": [],
+            "note": "Based on LLM reasoning — no direct source available"
+        }
+    }
+    
 def aggregator(state: AgentState) -> dict:
-    return {"scorecard": {"competition_score": 8, "market_score": 6, "retention_score": 9}}
+    idea = state["idea"]
+    competitors = "\n".join(state["competitors"])
+    pain_points = "\n".join(state["pain_points"])
 
-def should_pivot(state: AgentState) -> str:
-    return "end"
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+
+    prompt = f"""
+You are a cynical venture capital analyst who has seen 10,000 startup pitches fail.
+You do NOT give compliments. You identify risk.
+
+Analyze this startup idea ruthlessly across 4 dimensions:
+
+Idea: {idea}
+Target User: {state["idea_cleaned"].get("target_user", "unknown")}
+Core Problem: {state["idea_cleaned"].get("core_problem", "unknown")}
+
+Competitors found:
+{competitors}
+
+Evidence of pain/demand:
+{pain_points}
+Score each dimension 1-10 where 10 = extremely risky/bad:
+
+1. competition_score: How saturated is this market? Are there well-funded incumbents?
+2. market_score: Is there real demand evidence or just assumptions?
+3. retention_score: Why would users come back tomorrow? Is there a habit loop?
+4. legal_score: Are there regulatory, privacy, or compliance risks?
+5. willingness_to_pay_score: Will people actually pay for this? Who pays and how much?
+6. defensibility_score: Can this be copied by a developer in a weekend?
+
+Then provide:
+- overall_score: average of all 6 scores
+- verdict: one of "Strong idea", "Worth testing", "Needs more research", "Avoid"
+- one_line_summary: one brutally honest sentence
+- top_risk: the single biggest reason this could fail
+
+Return only valid JSON with these exact keys:
+competition_score, market_score, retention_score, legal_score, 
+willingness_to_pay_score, defensibility_score, overall_score, 
+verdict, one_line_summary, top_risk
+
+Nothing else. No explanation. Just JSON.
+"""
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    scorecard = json.loads(raw)
+    explainability = build_explainability(state, scorecard)   # ← NEW
+
+    return {
+        "scorecard": scorecard,
+        "score_explainability": explainability                # ← NEW
+    }
 
 def pivot_suggester(state: AgentState) -> dict:
-    return {"pivot_suggestion": {}}
+    idea = state["idea"]
+    scorecard = state["scorecard"]
+    execution_risk = state["execution_risk"]
+    
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    
+    prompt = f"""
+You are a startup mentor helping a founder who has a risky idea.
+Your job is to suggest a narrower, more viable version of their idea.
+
+Original idea: {idea}
+Target user: {state["idea_cleaned"].get("target_user", "unknown")}
+Core problem: {state["idea_cleaned"].get("core_problem", "unknown")}
+
+Risk scores (10 = very risky):
+- Competition: {scorecard.get("competition_score")}
+- Retention: {scorecard.get("retention_score")}
+- Legal: {scorecard.get("legal_score")}
+- Willingness to pay: {scorecard.get("willingness_to_pay_score")}
+- Defensibility: {scorecard.get("defensibility_score")}
+- Execution complexity: {execution_risk.get("execution_risk_score")}
+
+Top risk: {scorecard.get("top_risk")}
+Biggest execution challenge: {execution_risk.get("biggest_execution_challenge")}
+
+Suggest a pivot that:
+1. Solves the same core problem
+2. Targets a narrower audience
+3. Is simpler to build
+4. Has less competition
+5. Is easier to monetize
+
+Return only valid JSON with these exact keys:
+- pivot_idea: one sentence describing the narrower idea
+- why_better: one sentence explaining why this is less risky
+- new_target_user: who this pivot"""
+
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    
+    pivot = json.loads(raw)
+    return {"pivot_suggestion": pivot}
 
 def assumption_checklist(state: AgentState) -> dict:
-    return {"assumption_checklist": {}}
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+    
+    scorecard = state["scorecard"]
+    execution_risk = state["execution_risk"]
+    idea_cleaned = state["idea_cleaned"]
+    
+    prompt = f"""
+You are a startup coach helping a first-time founder validate their idea before writing any code.
+
+Idea: {state["idea"]}
+Target user: {idea_cleaned.get("target_user", "unknown")}
+Core problem: {idea_cleaned.get("core_problem", "unknown")}
+
+Risk signals found:
+- Top risk: {scorecard.get("top_risk")}
+- Retention score: {scorecard.get("retention_score")} / 10
+- Willingness to pay score: {scorecard.get("willingness_to_pay_score")} / 10
+- Competition score: {scorecard.get("competition_score")} / 10
+- Biggest execution challenge: {execution_risk.get("biggest_execution_challenge")}
+
+Your job:
+Generate exactly 4 assumption validation experiments the founder can run within 48 hours — before writing a single line of code.
+
+Each experiment must:
+1. Target one specific risky assumption
+2. Be completable in under 48 hours
+3. Have a clear pass/fail signal
+
+Return only valid JSON with this exact structure:
+{{
+  "assumptions": [
+    {{
+      "assumption": "what we are assuming is true",
+      "experiment": "exactly what to do in 48 hours",
+      "pass_signal": "what result means the assumption is valid",
+      "fail_signal": "what result means you should pivot or stop"
+    }}
+  ]
+}}
+
+Nothing else. Just JSON.
+"""
+    
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    
+    checklist = json.loads(raw)
+    return {"assumption_checklist": checklist}
+
+
+# ---------------------------------------------------------------------------
+# Roadmap generator — Stage 4
+#
+# 4-section roadmap, built directly from already-computed risk data:
+#   1. Headline — states the top risk this roadmap is built around
+#   2. Week 1   — one specific action targeting the single highest risk
+#   3. 30/60/90 — milestones ordered by risk severity, riskiest first
+#   4. Top 3 assumptions — pulled from assumption_checklist (already built)
+#
+# Risk ranking itself is plain Python, not left to the LLM — this keeps
+# personalization explicit and testable. Only the wording (Week 1 action,
+# milestone phrasing) goes through Groq, same style as the rest of the file.
+# ---------------------------------------------------------------------------
+
+RISK_DIMENSION_LABELS = {
+    "competition_score": "Competition",
+    "market_score": "Market Demand",
+    "retention_score": "Retention",
+    "legal_score": "Legal / Compliance",
+    "willingness_to_pay_score": "Willingness to Pay",
+    "defensibility_score": "Defensibility",
+    "execution_risk_score": "Execution Complexity",
+}
+
+def rank_risks(scorecard: dict, execution_risk: dict) -> list[dict]:
+    """Combines scorecard + execution_risk into one ranked list, highest risk first."""
+    combined = {}
+
+    for key in [
+        "competition_score", "market_score", "retention_score",
+        "legal_score", "willingness_to_pay_score", "defensibility_score",
+    ]:
+        if key in scorecard and scorecard[key] is not None:
+            combined[key] = scorecard[key]
+
+    if "execution_risk_score" in execution_risk and execution_risk["execution_risk_score"] is not None:
+        combined["execution_risk_score"] = execution_risk["execution_risk_score"]
+
+    ranked = sorted(
+        (
+            {"dimension": RISK_DIMENSION_LABELS.get(k, k), "key": k, "score": v}
+            for k, v in combined.items()
+        ),
+        key=lambda x: x["score"],
+        reverse=True,
+    )
+    return ranked
+
+
+def roadmap_generator(state: AgentState) -> dict:
+    scorecard = state.get("scorecard", {})
+    execution_risk = state.get("execution_risk", {})
+    pivot_suggestion = state.get("pivot_suggestion", {})
+    idea_cleaned = state.get("idea_cleaned", {})
+    assumption_data = state.get("assumption_checklist", {})
+    user_type = state.get("user_type", "founder")
+
+    ranked = rank_risks(scorecard, execution_risk)
+    top_risk = ranked[0] if ranked else {"dimension": "Unknown", "score": 0}
+    second_risk = ranked[1] if len(ranked) > 1 else None
+
+    # Section 4 — top 3 assumptions, pulled directly from assumption_checklist
+    all_assumptions = assumption_data.get("assumptions", [])
+    top_3_assumptions = all_assumptions[:3]
+
+    # If a pivot happened, build the roadmap around the pivoted idea
+    pivoted = bool(pivot_suggestion)
+    idea_for_prompt = (
+        pivot_suggestion.get("pivot_idea")
+        if pivoted and pivot_suggestion.get("pivot_idea")
+        else idea_cleaned.get("cleaned_idea", state.get("idea", ""))
+    )
+
+    llm = ChatGroq(model="llama-3.1-8b-instant")
+
+    prompt = f"""
+You are a startup execution coach. Build a roadmap personalized around what is
+actually risky about this specific idea — not a generic step-by-step template.
+
+Idea: {idea_for_prompt}
+User type: {user_type}
+
+Risk ranking (highest risk first, 10 = most risky):
+{json.dumps(ranked, indent=2)}
+
+Highest risk: {top_risk['dimension']} ({top_risk['score']}/10)
+Second highest: {second_risk['dimension'] + ' (' + str(second_risk['score']) + '/10)' if second_risk else 'N/A'}
+
+Rules:
+1. The headline must state in one sentence that this roadmap is built around
+   the highest risk dimension and its score.
+2. Week 1 action MUST directly address the highest risk dimension — not a
+   generic "start building" step. Be concrete (e.g. "Map your 3 closest
+   competitors and write down exactly what they're missing").
+3. 30/60/90-day milestones must be ORDERED so the highest-risk areas are
+   tackled earliest, even if that delays typical build steps.
+4. Be specific. No vague advice like "do market research."
+
+Return only valid JSON with this exact structure:
+{{
+  "headline": "one sentence stating this roadmap is built around the top risk",
+  "week_1": {{
+    "action": "specific action targeting the highest risk dimension",
+    "rationale": "why this addresses the highest risk first"
+  }},
+  "milestones": {{
+    "30_day": ["...", "..."],
+    "60_day": ["...", "..."],
+    "90_day": ["..."]
+  }}
+}}
+
+Nothing else. Just JSON.
+"""
+
+    response = llm.invoke(prompt)
+    raw = response.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+    parsed = json.loads(raw)
+
+    roadmap = {
+        "headline": parsed.get("headline", ""),
+        "top_risk": {"dimension": top_risk["dimension"], "score": top_risk["score"]},
+        "based_on_pivot": pivoted,
+        "week_1": parsed.get("week_1", {}),
+        "milestones": parsed.get("milestones", {"30_day": [], "60_day": [], "90_day": []}),
+        "top_assumptions": top_3_assumptions,
+        "disclaimer": "This is a starting framework, not a guarantee. You decide what to build.",
+    }
+
+    return {"roadmap": roadmap}
+
+
+def should_pivot(state: AgentState) -> str:
+    overall = state["scorecard"].get("overall_score", 0)
+    if overall >= 7:
+        return "pivot"
+    return "end"
 
 def build_graph():
     graph = StateGraph(AgentState)
 
-    # 1. Register existing + new nodes
     graph.add_node("intent_extractor", intent_extractor)
     graph.add_node("competitor_finder", competitor_finder)
     graph.add_node("pain_point_miner", pain_point_miner)
     graph.add_node("execution_risk_agent", execution_risk_agent)
     graph.add_node("aggregator", aggregator)
     graph.add_node("pivot_suggester", pivot_suggester)
-    graph.add_node("assumption_checklist", assumption_checklist)
-    graph.add_node("roadmap_generator", roadmap_generator) # ← Added
+    graph.add_node("assumption_checklist",assumption_checklist)
+    graph.add_node("roadmap_generator", roadmap_generator)
 
-    # 2. Stitch the execution path
     graph.set_entry_point("intent_extractor")
     graph.add_edge("intent_extractor", "competitor_finder")
     graph.add_edge("competitor_finder", "pain_point_miner")
     graph.add_edge("pain_point_miner", "execution_risk_agent")
     graph.add_edge("execution_risk_agent", "aggregator")
-    
-    # Route via condition logic
     graph.add_conditional_edges(
         "aggregator",
         should_pivot,
         {
             "pivot": "pivot_suggester",
-            "end": "roadmap_generator" # ← Pass through to strategic generator if safe
+            "end": "assumption_checklist"
         }
     )
-    graph.add_edge("pivot_suggester", "roadmap_generator") # ← Pivots also move onto generation
-    graph.add_edge("roadmap_generator", "assumption_checklist")
-    graph.add_edge("assumption_checklist", END)
+    graph.add_edge("pivot_suggester", "assumption_checklist")
+    graph.add_edge("assumption_checklist", "roadmap_generator")
+    graph.add_edge("roadmap_generator", END)
 
     return graph.compile()
+
+if __name__ == "__main__":
+    app = build_graph()
+    result = app.invoke({
+        "idea": "AI tutor for competitive exams",
+        "user_type": "founder",
+        "region": "global",
+        "idea_cleaned": {},
+        "competitors": [],
+        "pain_points": [],
+        "scorecard": {},
+        "execution_risk": {},
+        "pivot_suggestion":{},
+        "assumption_checklist": {},
+        "evidence_confidence": {},
+        "geographic_bias":{},
+        "score_explainability": {},
+        "roadmap": {}
+    })
+    print("\n--- SCORECARD ---")
+    for key, value in result["scorecard"].items():
+        print(f"{key}: {value}")
+    
+    print("\n--- EXECUTION RISK ---")
+    for key, value in result["execution_risk"].items():
+        print(f"{key}: {value}")
+        
+    print("\n---PIVOT SUGGESTION---")
+    for key,value in result["pivot_suggestion"].items():
+        print(f"{key}: {value}")
+        
+    print("\n--- ASSUMPTION CHECKLIST ---")
+    for item in result["assumption_checklist"].get("assumptions", []):
+        print(f"\nAssumption: {item['assumption']}")
+        print(f"Experiment: {item['experiment']}")
+        print(f"Pass: {item['pass_signal']}")
+        print(f"Fail: {item['fail_signal']}")
+
+    print("\n--- ROADMAP ---")
+    roadmap = result["roadmap"]
+    print(f"Headline: {roadmap.get('headline')}")
+    print(f"Top risk: {roadmap.get('top_risk')}")
+    print(f"\nWeek 1: {roadmap.get('week_1')}")
+    print(f"\nMilestones: {roadmap.get('milestones')}")
+    print(f"\nTop 3 assumptions: {roadmap.get('top_assumptions')}")
+    print(f"\nDisclaimer: {roadmap.get('disclaimer')}")
+        
+    print()

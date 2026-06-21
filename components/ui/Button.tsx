@@ -12,11 +12,11 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', size = 'md', isLoading, disabled, children, ...props }, ref) => {
     const variantStyles = {
-      primary: 'bg-gradient-to-r from-primary to-secondary text-white hover:opacity-90',
-      secondary: 'bg-card-dark text-white border border-slate-600 hover:border-slate-400',
-      outline: 'border border-slate-600 text-white hover:bg-slate-800',
-      ghost: 'text-slate-300 hover:text-white',
-      danger: 'bg-danger text-white hover:opacity-90',
+      primary: 'bg-secondary text-paper hover:bg-secondary/90',
+      secondary: 'bg-card-dark text-ink border border-border-soft hover:border-muted',
+      outline: 'border border-border-soft text-ink hover:bg-ink/5',
+      ghost: 'text-muted hover:text-ink',
+      danger: 'bg-danger text-paper hover:opacity-90',
     };
 
     const sizeStyles = {
@@ -30,21 +30,19 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={isLoading || disabled}
         className={cn(
-          'rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed',
+          'group inline-flex items-center justify-center gap-2 rounded-lg font-medium',
+          'transition-all duration-200 hover:scale-[1.02] active:scale-[0.97]',
+          'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100',
           variantStyles[variant],
           sizeStyles[size],
           className
         )}
         {...props}
       >
-        {isLoading ? (
-          <div className="flex items-center gap-2">
-            <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            {children}
-          </div>
-        ) : (
-          children
+        {isLoading && (
+          <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
         )}
+        {children}
       </button>
     );
   }

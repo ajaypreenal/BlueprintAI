@@ -10,7 +10,11 @@ html {
 }
 
 body {
-  @apply bg-bg-dark text-white;
+  @apply bg-paper text-ink;
+}
+
+h1, h2, .font-serif-headline {
+  font-family: var(--font-source-serif), Lora, Georgia, serif;
 }
 
 ::-webkit-scrollbar {
@@ -18,22 +22,14 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #0F172A;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #334155;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
-}
-
-.gradient-text {
-  @apply bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent;
-}
-
-.glow {
-  @apply shadow-lg shadow-primary/20;
+  background: #475569;
 }

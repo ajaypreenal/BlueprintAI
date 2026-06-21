@@ -26,8 +26,8 @@ export function RiskComparisonChart({
     <ResponsiveContainer width="100%" height={300}>
       <BarChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-        <XAxis dataKey="name" stroke="#94a3b8" />
-        <YAxis stroke="#94a3b8" />
+        <XAxis dataKey="name" stroke="#94A3B8" />
+        <YAxis stroke="#94A3B8" />
         <Tooltip
           contentStyle={{
             backgroundColor: '#1e293b',
@@ -38,7 +38,7 @@ export function RiskComparisonChart({
         />
         <Legend />
         <Bar dataKey="oldScore" fill="#EF4444" radius={[8, 8, 0, 0]} />
-        <Bar dataKey="newScore" fill="#22C55E" radius={[8, 8, 0, 0]} />
+        <Bar dataKey="newScore" fill="#4F46E5" radius={[8, 8, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -88,8 +88,8 @@ export function ScoreTrendChart({
     <ResponsiveContainer width="100%" height={300}>
       <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-        <XAxis dataKey="month" stroke="#94a3b8" />
-        <YAxis stroke="#94a3b8" />
+        <XAxis dataKey="month" stroke="#94A3B8" />
+        <YAxis stroke="#94A3B8" />
         <Tooltip
           contentStyle={{
             backgroundColor: '#1e293b',
@@ -119,8 +119,8 @@ export function FeatureComparisonChart({
     <ResponsiveContainer width="100%" height={300}>
       <BarChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-        <XAxis dataKey="name" stroke="#94a3b8" angle={-45} textAnchor="end" height={80} />
-        <YAxis stroke="#94a3b8" />
+        <XAxis dataKey="name" stroke="#94A3B8" angle={-45} textAnchor="end" height={80} />
+        <YAxis stroke="#94A3B8" />
         <Tooltip
           contentStyle={{
             backgroundColor: '#1e293b',
